@@ -65,48 +65,15 @@ limitations under the License.
   <body>
     <div class="tfjs-example-container centered-container">
       <section class='title-area'>
-        <h1>TensorFlow.js: Reinforcement Learning</h1>
-        <p class='subtitle'>Train a model to balance a pole on a cart using reinforcement learning.</p>
+        <h1>TensorFlow.js: Learning from a differentiable simulator</h1>
+        <p class='subtitle'>Let's learn a model by differentiating through the cartpole physics.</p>
       </section>
 
       <section>
         <p class='section-head'>Description</p>
-        <p>This example illustrates how to use TensorFlow.js to perform simple
-          <a href="https://en.wikipedia.org/wiki/Reinforcement_learning">reinforcement learning</a> (RL).
-          Specifically, it showcases an implementation of the policy-gradient method in TensorFlow.js.
-          This implementation is used to solve the classic <a href="https://en.wikipedia.org/wiki/Inverted_pendulum">cart-pole
+        <p>This example illustrates how to use TensorFlow.js to perform differentiable simulation to solve the classic <a href="https://en.wikipedia.org/wiki/Inverted_pendulum">cart-pole
             control problem.</a>
         </p>
-
-        <p>
-          Through <span class='in-type'>self play</span> the agent will learn to balance
-          the pole for as many <span class=out-example>steps</span> as it can.
-        </p>
-      </section>
-
-      <section>
-        <p class='section-head'>Instructions</p>
-        <p></p>
-        <ul>
-          <li>
-            Choose a hidden layer size and click "Create Model".
-          </li>
-          <li>
-            Select training parameters and then click "Train".
-          </li>
-          <li>
-            Note that while the model is training it periodically saves a copy of itself
-            to local browser storage, this mean you can refresh the page and continue training
-            from the last save point. If at any point you want to start training from scratch, click
-            "Delete stored Model".
-          </li>
-          <li>
-            Once the model has finished training you can click "Test" to see how many 'steps' the agent
-            can balance the pole for. You can also click 'Stop' to pause the training after the current iteration
-            ends if you want to test the model sooner.
-          </li>
-          <li>During training and testing a small simulation of the agent behaviour will be rendered.</li>
-        </ul>
       </section>
 
       <section>
@@ -119,10 +86,6 @@ limitations under the License.
           <p class='section-head'>Initialize Model</p>
           <div class="with-cols">
             <div class="with-rows init-model">
-              <div class="input-div with-rows">
-                <label class="input-label">Hidden layer size(s) (e.g.: "256", "32,64"):</label>
-                <input id="hidden-layer-sizes" value="128"></input>
-              </div>
               <button id="create-model" disabled="true">Create model</button>
             </div>
             <div class="with-rows init-model">
@@ -141,16 +104,8 @@ limitations under the License.
               <input id="num-iterations" value="20"></input>
             </div>
             <div class="input-div">
-              <label class="input-label">Games per iteration:</label>
-              <input id="games-per-iteration" value="20"></input>
-            </div>
-            <div class="input-div">
-              <label class="input-label">Max. steps per game:</label>
-              <input id="max-steps-per-game" value="500"></input>
-            </div>
-            <div class="input-div">
-              <label class="input-label">Reward discount rate:</label>
-              <input id="discount-rate" value="0.95"></input>
+              <label class="input-label">Max. steps:</label>
+              <input id="max-steps" value="500"></input>
             </div>
             <div class="input-div">
               <label class="input-label">Learning rate:</label>
@@ -164,7 +119,6 @@ limitations under the License.
 
             <div class="buttons-section">
               <button id="train" disabled="true">Train</button>
-              <button id="test" disabled="true">Test</button>
             </div>
           </div>
 
@@ -178,10 +132,6 @@ limitations under the License.
           <div class="status">
             <label id="train-status">Iteration #:</label>
             <progress value="0" max="100" id="train-progress"></progress>
-          </div>
-          <div class="status">
-            <label id="iteration-status">Game #:</label>
-            <progress value="0" max="100" id="iteration-progress"></progress>
           </div>
 
           <div class="status">

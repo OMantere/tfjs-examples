@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@tensorflow/tfjs": "2.4.0",
-    "@tensorflow/tfjs-vis": "^1.4.3"
+    "@tensorflow/tfjs-vis": "^1.4.3",
+    "postcss": "^8.1.9",
+    "tailwindcss": "^2.0.1"
   },
   "scripts": {
     "build": "cross-env NODE_ENV=production parcel build index.html --no-minify --public-url ./",

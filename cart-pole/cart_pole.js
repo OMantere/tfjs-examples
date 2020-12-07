@@ -42,85 +42,72 @@ export class CartPole {
    */
   constructor() {
     // Constants that characterize the system.
-    this.gravity = 9.8;
-    this.massCart = 1.0;
-    this.massPole = 0.1;
-    this.totalMass = this.massCart + this.massPole;
-    this.cartWidth = 0.2;
-    this.cartHeight = 0.1;
-    this.length = 0.5;
-    this.poleMoment = this.massPole * this.length;
-    this.forceMag = 10.0;
-    this.tau = 0.02;  // Seconds between state updates.
+    this.gravity = tf.scalar(9.8);
+    this.massCart = tf.scalar(1.0);
+    this.massPole = tf.scalar(0.1);
+    this.totalMass = this.massCart.add(this.massPole);
+    this.cartWidth = tf.scalar(0.2);
+    this.cartHeight = tf.scalar(0.1);
+    this.length = tf.scalar(0.5);
+    this.poleMoment = this.massPole.mul(this.length);
+    this.forceMag = tf.scalar(10.0);
+    this.tau = tf.scalar(0.02);  // Seconds between state updates.
+    this.frac = tf.scalar(4.0).div(3.0);
 
     // Threshold values, beyond which a simulation will be marked as failed.
     this.xThreshold = 2.4;
     this.thetaThreshold = 12 / 360 * 2 * Math.PI;
+    this.isDone = false;
 
     this.setRandomState();
   }
 
-  /**
-   * Set the state of the cart-pole system randomly.
-   */
   setRandomState() {
-    // The control-theory state variables of the cart-pole system.
-    // Cart position, meters.
-    this.x = Math.random() - 0.5;
-    // Cart velocity.
-    this.xDot = (Math.random() - 0.5) * 1;
-    // Pole angle, radians.
-    this.theta = (Math.random() - 0.5) * 2 * (6 / 360 * 2 * Math.PI);
-    // Pole angle velocity.
-    this.thetaDot =  (Math.random() - 0.5) * 0.5;
+    const x = tf.scalar(Math.random() - 0.5);
+    const xDot = tf.scalar((Math.random() - 0.5) * 1);
+    const theta = tf.scalar((Math.random() - 0.5) * 2 * (6 / 360 * 2 * Math.PI));
+    const thetaDot =  tf.scalar((Math.random() - 0.5) * 0.5);
   }
 
-  /**
-   * Get current state as a tf.Tensor of shape [1, 4].
-   */
-  getStateTensor() {
-    return tf.tensor2d([[this.x, this.xDot, this.theta, this.thetaDot]]);
+  forward(net) {
+    const force = net.predict(inputs) * this.forceMag;
+
+    const cosTheta = tf.cos(this.theta);
+    const sinTheta = tf.sin(this.theta);
+
+    const term = force.add(this.poleMoment.mul(this.thetaDot).mul(this.thetaDot).mul(sinTheta).div(this.totalMass));
+    const bottomTerm = this.length.mul(this.frac.sub(this.massPole.mul(tf.pow(cosTheta, 2)).div(this.totalMass)));
+    const thetaAcc = this.gravity.mul(sinTheta).sub(cosTheta.mul(term)).div(bottomTerm);
+    const xAcc = term.sub(this.poleMoment.mul(thetaAcc).mul(cosTheta).div(this.totalMass));
+
+    this.x = this.tau.mul(this.xDot).add(this.x);
+    this.xDot = this.tau.mul(xAcc).add(this.xDot);
+    this.theta = this.tau.mul(this.thetaDot).add(this.theta);
+    this.thetaDot = this.tau.mul(thetaAcc).add(this.thetaDot);
+
+    this.isDone = this._done();
+    return this.x, this.theta;
   }
 
-  /**
-   * Update the cart-pole system using an action.
-   * @param {number} action Only the sign of `action` matters.
-   *   A value > 0 leads to a rightward force of a fixed magnitude.
-   *   A value <= 0 leads to a leftward force of the same fixed magnitude.
-   */
-  update(action) {
-    const force = action > 0 ? this.forceMag : -this.forceMag;
+  lossFn() {
+    const offAxis = this.x.sub(0.5);
+    const xLower = tf.scalar(this.xThreshold).add(offAxis);
+    const xUpper = tf.scalar(this.xThreshold).sub(offAxis);
+    const xMax = tf.max(0.0, tf.min(xLower, xUpper));
 
-    const cosTheta = Math.cos(this.theta);
-    const sinTheta = Math.sin(this.theta);
+    const thetaLower = tf.scalar(this.thetaThreshold).add(this.theta);
+    const thetaUpper = tf.scalar(this.thetaThreshold).sub(this.theta);
+    const thetaMax = tf.max(0.0, tf.min(thetaLower, thetaUpper));
 
-    const temp =
-        (force + this.poleMoment * this.thetaDot * this.thetaDot * sinTheta) /
-        this.totalMass;
-    const thetaAcc = (this.gravity * sinTheta - cosTheta * temp) /
-        (this.length *
-         (4 / 3 - this.massPole * cosTheta * cosTheta / this.totalMass));
-    const xAcc = temp - this.poleMoment * thetaAcc * cosTheta / this.totalMass;
-
-    // Update the four state variables, using Euler's metohd.
-    this.x += this.tau * this.xDot;
-    this.xDot += this.tau * xAcc;
-    this.theta += this.tau * this.thetaDot;
-    this.thetaDot += this.tau * thetaAcc;
-
-    return this.isDone();
+    const lossX = tf.pow(xMax.sub(this.xThreshold), 2).mul(0.01);
+    const lossTheta = tf.pow(thetaMax.sub(this.thetaThreshold), 2);
+    return lossX.add(lossTheta);
   }
 
-  /**
-   * Determine whether this simulation is done.
-   *
-   * A simulation is done when `x` (position of the cart) goes out of bound
-   * or when `theta` (angle of the pole) goes out of bound.
-   *
-   * @returns {bool} Whether the simulation is done.
-   */
-  isDone() {
-    return this.x < -this.xThreshold || this.x > this.xThreshold ||
-        this.theta < -this.thetaThreshold || this.theta > this.thetaThreshold;
+  _done() {
+    const x = this.x.dataSync();
+    const theta = this.theta.dataSync();
+    return x < -this.xThreshold || x > this.xThreshold ||
+        theta < -this.thetaThreshold || theta > this.thetaThreshold;
   }
 }

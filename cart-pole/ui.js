@@ -20,36 +20,31 @@ import * as tfvis from '@tensorflow/tfjs-vis';
 import embed from 'vega-embed';
 
 import {CartPole} from './cart_pole';
-import {SaveablePolicyNetwork} from './index';
+import {SaveableController} from './index';
 import {mean, sum} from './utils';
 
 const appStatus = document.getElementById('app-status');
 const storedModelStatusInput = document.getElementById('stored-model-status');
-const hiddenLayerSizesInput = document.getElementById('hidden-layer-sizes');
 const createModelButton = document.getElementById('create-model');
 const deleteStoredModelButton = document.getElementById('delete-stored-model');
 const cartPoleCanvas = document.getElementById('cart-pole-canvas');
 
 const numIterationsInput = document.getElementById('num-iterations');
-const gamesPerIterationInput = document.getElementById('games-per-iteration');
-const discountRateInput = document.getElementById('discount-rate');
-const maxStepsPerGameInput = document.getElementById('max-steps-per-game');
+const maxStepsInput = document.getElementById('max-steps');
 const learningRateInput = document.getElementById('learning-rate');
 const renderDuringTrainingCheckbox =
     document.getElementById('render-during-training');
 
 const trainButton = document.getElementById('train');
 const testButton = document.getElementById('test');
-const iterationStatus = document.getElementById('iteration-status');
-const iterationProgress = document.getElementById('iteration-progress');
 const trainStatus = document.getElementById('train-status');
 const trainSpeed = document.getElementById('train-speed');
 const trainProgress = document.getElementById('train-progress');
 
 const stepsContainer = document.getElementById('steps-container');
 
-// Module-global instance of policy network.
-let policyNet;
+// Module-global instance of network
+let net;
 let stopRequested = false;
 
 /**
@@ -70,41 +65,11 @@ export async function maybeRenderDuringTraining(cartPole) {
   }
 }
 
-/**
- * A function invoked at the end of every game during training.
- *
- * @param {number} gameCount A count of how many games has completed so far in
- *   the current iteration of training.
- * @param {number} totalGames Total number of games to complete in the current
- *   iteration of training.
- */
-export function onGameEnd(gameCount, totalGames) {
-  iterationStatus.textContent = `Game ${gameCount} of ${totalGames}`;
-  iterationProgress.value = gameCount / totalGames * 100;
-  if (gameCount === totalGames) {
-    iterationStatus.textContent = 'Updating weights...';
-  }
-}
-
-/**
- * A function invokved at the end of a training iteration.
- *
- * @param {number} iterationCount A count of how many iterations has completed
- *   so far in the current round of training.
- * @param {*} totalIterations Total number of iterations to complete in the
- *   current round of training.
- */
-function onIterationEnd(iterationCount, totalIterations) {
-  trainStatus.textContent = `Iteration ${iterationCount} of ${totalIterations}`;
-  trainProgress.value = iterationCount / totalIterations * 100;
-}
-
-// Objects and function to support the plotting of game steps during training.
-let meanStepValues = [];
+let stepValues = [];
 function plotSteps() {
-  tfvis.render.linechart(stepsContainer, {values: meanStepValues}, {
+  tfvis.render.linechart(stepsContainer, {values: stepValues}, {
     xLabel: 'Training Iteration',
-    yLabel: 'Mean Steps Per Game',
+    yLabel: 'Steps',
     width: 400,
     height: 300,
   });
@@ -112,13 +77,11 @@ function plotSteps() {
 
 function disableModelControls() {
   trainButton.textContent = 'Stop';
-  testButton.disabled = true;
   deleteStoredModelButton.disabled = true;
 }
 
 function enableModelControls() {
   trainButton.textContent = 'Train';
-  testButton.disabled = false;
   deleteStoredModelButton.disabled = false;
 }
 
@@ -147,7 +110,7 @@ function renderCartPole(cartPole, canvas) {
   const cartW = cartPole.cartWidth * scale;
   const cartH = cartPole.cartHeight * scale;
 
-  const cartX = cartPole.x * scale + halfW;
+  const cartX = cartPole.x.dataSync() * scale + halfW;
 
   context.beginPath();
   context.strokeStyle = '#000000';
@@ -167,7 +130,7 @@ function renderCartPole(cartPole, canvas) {
   }
 
   // Draw the pole.
-  const angle = cartPole.theta + Math.PI / 2;
+  const angle = cartPole.theta.dataSync() + Math.PI / 2;
   const poleTopX =
       halfW + scale * (cartPole.x + Math.cos(angle) * cartPole.length);
   const poleTopY = railY -
@@ -215,7 +178,7 @@ function renderCartPole(cartPole, canvas) {
 }
 
 async function updateUIControlState() {
-  const modelInfo = await SaveablePolicyNetwork.checkStoredModelStatus();
+  const modelInfo = await SaveableController.checkStoredModelStatus();
   if (modelInfo == null) {
     storedModelStatusInput.value = 'No stored model.';
     deleteStoredModelButton.disabled = true;
@@ -225,20 +188,17 @@ async function updateUIControlState() {
     deleteStoredModelButton.disabled = false;
     createModelButton.disabled = true;
   }
-  createModelButton.disabled = policyNet != null;
-  hiddenLayerSizesInput.disabled = policyNet != null;
-  trainButton.disabled = policyNet == null;
-  testButton.disabled = policyNet == null;
+  createModelButton.disabled = net != null;
+  trainButton.disabled = net == null;
   renderDuringTrainingCheckbox.checked = renderDuringTraining;
 }
 
 export async function setUpUI() {
   const cartPole = new CartPole(true);
 
-  if (await SaveablePolicyNetwork.checkStoredModelStatus() != null) {
-    policyNet = await SaveablePolicyNetwork.loadModel();
+  if (await SaveableController.checkStoredModelStatus() != null) {
+    net = await SaveableController.loadModel();
     logStatus('Loaded policy network from IndexedDB.');
-    hiddenLayerSizesInput.value = policyNet.hiddenLayerSizes();
   }
   await updateUIControlState();
 
@@ -248,18 +208,8 @@ export async function setUpUI() {
 
   createModelButton.addEventListener('click', async () => {
     try {
-      const hiddenLayerSizes =
-          hiddenLayerSizesInput.value.trim().split(',').map(v => {
-            const num = Number.parseInt(v.trim());
-            if (!(num > 0)) {
-              throw new Error(
-                  `Invalid hidden layer sizes string: ` +
-                  `${hiddenLayerSizesInput.value}`);
-            }
-            return num;
-          });
-      policyNet = new SaveablePolicyNetwork(hiddenLayerSizes);
-      console.log('DONE constructing new instance of SaveablePolicyNetwork');
+      net = new SaveableController();
+      console.log('DONE constructing new instance of SaveableController');
       await updateUIControlState();
     } catch (err) {
       logStatus(`ERROR: ${err.message}`);
@@ -268,8 +218,8 @@ export async function setUpUI() {
 
   deleteStoredModelButton.addEventListener('click', async () => {
     if (confirm(`Are you sure you want to delete the locally-stored model?`)) {
-      await policyNet.removeModel();
-      policyNet = null;
+      await net.removeModel();
+      net = null;
       await updateUIControlState();
     }
   });
@@ -280,94 +230,48 @@ export async function setUpUI() {
     } else {
       disableModelControls();
 
-      try {
-        const trainIterations = Number.parseInt(numIterationsInput.value);
-        if (!(trainIterations > 0)) {
-          throw new Error(`Invalid number of iterations: ${trainIterations}`);
-        }
-        const gamesPerIteration = Number.parseInt(gamesPerIterationInput.value);
-        if (!(gamesPerIteration > 0)) {
-          throw new Error(
-              `Invalid # of games per iterations: ${gamesPerIteration}`);
-        }
-        const maxStepsPerGame = Number.parseInt(maxStepsPerGameInput.value);
-        if (!(maxStepsPerGame > 1)) {
-          throw new Error(`Invalid max. steps per game: ${maxStepsPerGame}`);
-        }
-        const discountRate = Number.parseFloat(discountRateInput.value);
-        if (!(discountRate > 0 && discountRate < 1)) {
-          throw new Error(`Invalid discount rate: ${discountRate}`);
-        }
-        const learningRate = Number.parseFloat(learningRateInput.value);
+      const trainIterations = Number.parseInt(numIterationsInput.value);
+      if (!(trainIterations > 0)) {
+        throw new Error(`Invalid number of iterations: ${trainIterations}`);
+      }
+      const maxSteps = Number.parseInt(maxStepsInput.value);
+      if (!(maxSteps > 1)) {
+        throw new Error(`Invalid max. steps per game: ${maxSteps}`);
+      }
+      const learningRate = Number.parseFloat(learningRateInput.value);
 
-        logStatus(
-            'Training policy network... Please wait. ' +
-            'Network is saved to IndexedDB at the end of each iteration.');
-        const optimizer = tf.train.adam(learningRate);
+      logStatus(
+          'Training network... Please wait. ' +
+          'Network is saved to IndexedDB at the end of each iteration.');
+      const optimizer = tf.train.adam(learningRate);
 
-        meanStepValues = [];
-        onIterationEnd(0, trainIterations);
-        let t0 = new Date().getTime();
-        stopRequested = false;
-        for (let i = 0; i < trainIterations; ++i) {
-          const gameSteps = await policyNet.train(
-              cartPole, optimizer, discountRate, gamesPerIteration,
-              maxStepsPerGame);
-          const t1 = new Date().getTime();
-          const stepsPerSecond = sum(gameSteps) / ((t1 - t0) / 1e3);
-          t0 = t1;
-          trainSpeed.textContent = `${stepsPerSecond.toFixed(1)} steps/s`
-          meanStepValues.push({x: i + 1, y: mean(gameSteps)});
-          console.log(`# of tensors: ${tf.memory().numTensors}`);
-          plotSteps();
-          onIterationEnd(i + 1, trainIterations);
-          await tf.nextFrame();  // Unblock UI thread.
-          await policyNet.saveModel();
-          await updateUIControlState();
+      stepValues = [];
+      onIterationEnd(0, trainIterations);
+      let t0 = new Date().getTime();
+      stopRequested = false;
+      for (let i = 0; i < trainIterations; ++i) {
+        const steps = await net.train(cartPole, optimizer, maxSteps);
+        const t1 = new Date().getTime();
+        const stepsPerSecond = sum(gameSteps) / ((t1 - t0) / 1e3);
+        t0 = t1;
+        trainSpeed.textContent = `${stepsPerSecond.toFixed(1)} steps/s`
+        stepValues.push({x: i + 1, y: mean(steps)});
+        console.log(`# of tensors: ${tf.memory().numTensors}`);
+        plotSteps();
+        onIterationEnd(i + 1, trainIterations);
+        await tf.nextFrame();  // Unblock UI thread.
+        await net.saveModel();
+        await updateUIControlState();
 
-          if (stopRequested) {
-            logStatus('Training stopped by user.');
-            break;
-          }
+        if (stopRequested) {
+          logStatus('Training stopped by user.');
+          break;
         }
-        if (!stopRequested) {
-          logStatus('Training completed.');
-        }
-      } catch (err) {
-        logStatus(`ERROR: ${err.message}`);
+      }
+      if (!stopRequested) {
+        logStatus('Training completed.');
       }
       enableModelControls();
     }
-  });
-
-  testButton.addEventListener('click', async () => {
-    disableModelControls();
-    let isDone = false;
-    const cartPole = new CartPole(true);
-    cartPole.setRandomState();
-    let steps = 0;
-    stopRequested = false;
-    while (!isDone) {
-      steps++;
-      tf.tidy(() => {
-        const action = policyNet.getActions(cartPole.getStateTensor())[0];
-        logStatus(
-            `Test in progress. ` +
-            `Action: ${action === 1 ? '<--' : ' -->'} (Step ${steps})`);
-        isDone = cartPole.update(action);
-        renderCartPole(cartPole, cartPoleCanvas);
-      });
-      await tf.nextFrame();  // Unblock UI thread.
-      if (stopRequested) {
-        break;
-      }
-    }
-    if (stopRequested) {
-      logStatus(`Test stopped by user after ${steps} step(s).`);
-    } else {
-      logStatus(`Test finished. Survived ${steps} step(s).`);
-    }
-    console.log(`# of tensors: ${tf.memory().numTensors}`);
-    enableModelControls();
   });
 }
